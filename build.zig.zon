@@ -1,0 +1,15 @@
+.{
+    .name = "accountr",
+    .version = "0.0.0",
+    .dependencies = .{
+        .dvui = .{
+            .url = "https://github.com/david-vanderson/dvui/archive/31893c89b563d0a42b5f4d3c6aa2b4f548fa26eb.tar.gz",
+            .hash = "1220c6d48da800d3c5ba75e4a56c757aa893042d8ae80ee8a79679e5e4e68c2bfac3",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
