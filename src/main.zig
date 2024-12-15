@@ -1,7 +1,9 @@
 const std = @import("std");
-const ray = @import("raylib-import.zig").ray;
+const ray = @import("raylib_import.zig").ray;
 const dvui = @import("dvui");
 const RaylibBackend = dvui.backend;
+const sparse_set = @import("sparse_set.zig");
+const SparseSet = sparse_set.SparseSet;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{
@@ -33,4 +35,8 @@ pub fn main() !void {
     }
 }
 
-test "simple test" {}
+test "simple test" {
+    const s = SparseSet(u8, u8);
+    _ = s;
+    std.testing.refAllDecls(@This());
+}

@@ -2,118 +2,145 @@ const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
 
-pub fn SparseSet(comptime T: type) type {
+fn maxBit(num: u64) u64 {
+    if (num == 0) return 0;
+    return std.math.log2_int(num) + 1;
+}
+
+pub fn ArrayIndex(comptime BackingInt: type) type {
     return struct {
-        dense_to_sparse_map: std.ArrayListAlignedUnmanaged(usize, null) = .{},
-        dense: std.ArrayListAlignedUnmanaged(T, null) = .{},
-        sparse: std.ArrayListAlignedUnmanaged(?usize, null) = .{},
+        pub const Sparse = enum(BackingInt) {
+            _,
+            //pub fn jsonStringify(
+        };
 
-        pub fn init(a: std.mem.Allocator, initial_capacity: usize) !@This() {
-            var sparse = try std.ArrayListAlignedUnmanaged(?usize, null).initCapacity(a, initial_capacity);
-            try sparse.appendNTimes(a, null, initial_capacity);
-            return .{
-                .sparse = sparse,
-            };
+        pub const Dense = enum(BackingInt) {
+            _,
+        };
+    };
+}
+
+pub fn SparseSet(comptime T: type, comptime BackingInt: type) type {
+    //
+    return struct {
+        pub const Index = ArrayIndex(BackingInt);
+
+        dense_to_sparse_map: []Index.Sparse = &[_]Index.Sparse{},
+        dense: []T = &[_]T{},
+        dense_fill_count: BackingInt = 0,
+        sparse: []?Index.Dense = &[_]?Index.Dense{},
+
+        pub fn init() @This() {
+            return .{};
         }
 
-        pub fn capacity(self: *const @This()) usize {
-            return self.sparse.items.len;
+        pub fn deinit(self: *@This(), gpa: std.mem.Allocator) void {
+            gpa.free(self.dense_to_sparse_map);
+            gpa.free(self.dense);
+            gpa.free(self.sparse);
         }
 
-        pub fn increaseCapacity(self: *@This(), a: std.mem.Allocator, new_capacity: usize) !void {
+        pub fn expandSparse(self: *@This(), gpa: std.mem.Allocator, new_capacity: usize) !void {
+            const old_len = self.sparse.len;
+            self.sparse = try gpa.realloc(self.sparse, new_capacity);
+            @memset(self.sparse[old_len..new_capacity], null);
+        }
+
+        pub fn expandDense(self: *@This(), gpa: std.mem.Allocator, new_capacity: usize) !void {
+            const old_len = self.dense.len;
+            self.dense = try gpa.realloc(self.dense, new_capacity);
+            self.dense_to_sparse_map = try gpa.realloc(self.dense_to_sparse_map, new_capacity);
+            @memset(std.mem.asBytes(self.dense[old_len..new_capacity]), 0);
+            @memset(std.mem.asBytes(self.dense_to_sparse_map[old_len..new_capacity]), 0);
+        }
+
+        fn appendDense(self: *@This(), gpa: std.mem.Allocator, sparse_index: Index.Sparse, value: T) !Index.Dense {
+            if (self.dense_fill_count + 1 >= self.dense.len) {
+                try self.expandDense(gpa, self.dense.len * 2);
+            }
+            self.dense[self.dense_fill_count] = value;
+            self.dense_to_sparse_map[self.dense_fill_count] = sparse_index;
+            self.dense_fill_count += 1;
+            return @enumFromInt(self.dense_fill_count - 1);
+        }
+
+        fn setDense(self: *@This(), sparse_index: Index.Sparse, index: Index.Dense, value: T) void {
+            self.dense[@intFromEnum(index)] = value;
+            self.dense_to_sparse_map[@intFromEnum(index)] = sparse_index;
+        }
+
+        fn setSparse(self: *@This(), sparse_index: Index.Sparse, value: ?Index.Dense) void {
+            self.sparse[@intFromEnum(sparse_index)] = value;
+        }
+
+        /// Can clobber existing values
+        pub fn set(self: *@This(), gpa: std.mem.Allocator, raw_index: BackingInt, value: T) !void {
             self.audit();
             defer self.audit();
 
-            assert(new_capacity >= self.capacity());
-            try self.sparse.appendNTimes(a, null, new_capacity - self.capacity());
+            const index: Index.Sparse = @enumFromInt(raw_index);
+
+            const capacity_needed: BackingInt = @intFromEnum(index) + 1;
+            if (self.sparse.len < capacity_needed) {
+                try self.expandSparse(gpa, capacity_needed);
+            }
+
+            const maybe_dense_index: ?Index.Dense = self.sparse[@intFromEnum(index)];
+            if (maybe_dense_index) |dense_index| {
+                self.setDense(index, dense_index, value);
+            } else {
+                const new_sparse_value: Index.Dense = try self.appendDense(gpa, index, value);
+                self.setSparse(index, new_sparse_value);
+            }
         }
 
-        pub fn deinit(self: *@This(), a: std.mem.Allocator) void {
-            self.dense.deinit(a);
-            self.sparse.deinit(a);
-            self.dense_to_sparse_map.deinit(a);
+        pub fn setNoClobber(self: *@This(), a: std.mem.Allocator, raw_index: BackingInt, value: T) !void {
+            assert(self.getSparse(@enumFromInt(raw_index)) == null);
+            try self.set(a, raw_index, value);
         }
 
-        pub fn set(self: *@This(), a: std.mem.Allocator, index: usize, val: T) !void {
+        pub fn delete(self: *@This(), raw_index: BackingInt) !void {
             self.audit();
             defer self.audit();
+            const index: Index.Sparse = @enumFromInt(raw_index);
 
-            if (index < 0 or index > self.capacity()) {
-                return error.index_out_of_bounds;
-            }
+            const maybe_dense_index = self.getSparse(index);
 
-            if (self.get(index) != null) {
-                try self.delete(index);
-            }
+            if (maybe_dense_index) |dense_index| {
+                self.setSparse(index, null);
 
-            const index_in_dense = self.dense.items.len;
+                const top_value: T = self.dense[self.dense_fill_count - 1];
+                const top_sparse_index: Index.Sparse = self.dense_to_sparse_map[self.dense_fill_count - 1];
 
-            try self.dense.append(a, val);
-            try self.dense_to_sparse_map.append(a, index);
-            self.sparse.items[index] = index_in_dense;
-        }
+                if (index != top_sparse_index) {
+                    self.setDense(top_sparse_index, dense_index, top_value);
+                    self.setSparse(top_sparse_index, dense_index);
+                }
 
-        pub fn setNoClobber(self: *@This(), a: std.mem.Allocator, index: usize, val: T) !void {
-            self.audit();
-            defer self.audit();
-
-            assert(self.indexEmpty(index) catch false);
-            try self.set(a, index, val);
-        }
-
-        pub fn delete(self: *@This(), sparse_index: usize) !void {
-            self.audit();
-            defer self.audit();
-
-            if (sparse_index < 0 or sparse_index > self.capacity()) {
-                return error.index_out_of_bounds;
-            } else if (try self.indexEmpty(sparse_index)) {
-                return;
-            }
-
-            //delete the index in the sparse array
-            const dense_index = self.sparse.items[sparse_index].?;
-            self.sparse.items[sparse_index] = null;
-
-            //set the now empty location to the top of the dense array
-            const dense_top_value = self.dense.pop();
-            const dense_top_id = self.dense_to_sparse_map.pop();
-
-            assert(self.dense_to_sparse_map.items.len == self.dense.items.len);
-
-            if (dense_index < self.dense.items.len) {
-                self.dense.items[dense_index] = dense_top_value;
-                self.dense_to_sparse_map.items[dense_index] = dense_top_id;
-                self.sparse.items[dense_top_id] = dense_index;
-            }
-
-            //update the sparse index that used to point to the dense array top
-            //self.sparse[self.dense_to_sparse[dense_empty_location].?] = dense_empty_location;
-        }
-
-        fn boundsCheck(self: *const @This(), sparse_index: usize) !void {
-            if (sparse_index < 0 or sparse_index > self.capacity()) {
-                return error.index_out_of_bounds;
+                self.dense_fill_count -= 1;
             }
         }
 
-        pub fn indexEmpty(self: *const @This(), sparse_index: usize) !bool {
-            try boundsCheck(self, sparse_index);
-            return self.get(sparse_index) == null;
-        }
-
-        pub fn get(self: *const @This(), sparse_index: usize) ?*T {
-            boundsCheck(self, sparse_index) catch return null;
-            const dense_index = self.sparse.items[sparse_index];
-            if (dense_index == null) {
+        fn getSparse(self: *const @This(), sparse_index: Index.Sparse) ?Index.Dense {
+            const index: BackingInt = @intFromEnum(sparse_index);
+            if (index < self.sparse.len) {
                 return null;
             } else {
-                return &self.dense.items[dense_index.?];
+                return self.sparse[index];
+            }
+        }
+
+        pub fn get(self: *const @This(), sparse_index: Index.Sparse) ?T {
+            const maybe_dense_index: ?Index.Dense = self.getSparse(sparse_index);
+            if (maybe_dense_index) |dense_index| {
+                return self.dense[@intFromEnum(dense_index)];
+            } else {
+                return null;
             }
         }
 
         pub fn slice(self: *const @This()) []T {
-            return self.dense.items;
+            return self.dense;
         }
 
         pub fn audit(self: *const @This()) void {
@@ -135,7 +162,7 @@ pub fn SparseSet(comptime T: type) type {
             assert(non_null_count == self.dense.items.len);
 
             //assert every dense_to_sparse mapping is valid
-            for (self.dense_to_sparse_map.items, 0..) |sparse_index, dense_index| {
+            for (self.dense_to_sparse_map, 0..) |sparse_index, dense_index| {
                 assert(sparse_index >= 0);
                 assert(sparse_index < self.sparse.items.len);
                 assert(self.sparse.items[sparse_index] != null);
@@ -146,9 +173,9 @@ pub fn SparseSet(comptime T: type) type {
 }
 
 test "sparse_set" {
-    var a = std.testing.allocator;
+    const a = std.testing.allocator;
 
-    var set = try SparseSet(usize).init(a, 128);
+    var set = SparseSet(usize, u8).init();
     defer set.deinit(a);
     try set.setNoClobber(a, 0, 12);
     try set.setNoClobber(a, 3, 13);
@@ -166,16 +193,21 @@ test "sparse_set" {
     try set.setNoClobber(a, 9, 17);
     try set.delete(9);
     try set.delete(127);
+}
 
-    var set2 = try SparseSet(usize).init(a, 128);
-    defer set2.deinit(a);
+test "stringify" {
+    const a = std.testing.allocator;
+    var set = SparseSet(usize, u8).init();
+    defer set.deinit(a);
 
-    try set2.setNoClobber(a, 0, 12);
-    try set2.setNoClobber(a, 3, 13);
-    try set2.setNoClobber(a, 5, 14);
+    try set.setNoClobber(a, 0, 12);
+    try set.setNoClobber(a, 3, 13);
+    try set.setNoClobber(a, 5, 14);
 
     const string = try std.json.stringifyAlloc(a, set, .{});
     defer a.free(string);
     const parsed = try std.json.parseFromSlice(@TypeOf(set), a, string, .{});
     defer parsed.deinit();
+
+    std.debug.print("hi", .{});
 }
