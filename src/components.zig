@@ -55,7 +55,7 @@ pub const UserLog = struct {
 
 /// Any additional notes about an entity
 pub const Notes = struct {
-    items: []const u8,
+    //items: []const u8 = ,
 };
 
 /// Flag for a part

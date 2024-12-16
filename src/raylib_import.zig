@@ -1,4 +1,5 @@
-pub const ray = @import("dvui").backend.c;
+pub const ray = struct {};
+//pub const ray = @import("dvui").backend.c;
 //pub const ray = @cImport({
 //    @cInclude("raylib.h");
 //    //@cInclude("raymath.h");

@@ -50,13 +50,14 @@ pub fn SparseSet(comptime T: type, comptime BackingInt: type) type {
             const old_len = self.dense.len;
             self.dense = try gpa.realloc(self.dense, new_capacity);
             self.dense_to_sparse_map = try gpa.realloc(self.dense_to_sparse_map, new_capacity);
-            @memset(std.mem.asBytes(self.dense[old_len..new_capacity]), 0);
-            @memset(std.mem.asBytes(self.dense_to_sparse_map[old_len..new_capacity]), 0);
+            //std.mem.zeroes
+            @memset(self.dense[old_len..new_capacity], std.mem.zeroes(T));
+            @memset(self.dense_to_sparse_map[old_len..new_capacity], std.mem.zeroes(Index.Sparse));
         }
 
         fn appendDense(self: *@This(), gpa: std.mem.Allocator, sparse_index: Index.Sparse, value: T) !Index.Dense {
             if (self.dense_fill_count + 1 >= self.dense.len) {
-                try self.expandDense(gpa, self.dense.len * 2);
+                try self.expandDense(gpa, (self.dense.len + 1) * 2);
             }
             self.dense[self.dense_fill_count] = value;
             self.dense_to_sparse_map[self.dense_fill_count] = sparse_index;
@@ -123,7 +124,7 @@ pub fn SparseSet(comptime T: type, comptime BackingInt: type) type {
 
         fn getSparse(self: *const @This(), sparse_index: Index.Sparse) ?Index.Dense {
             const index: BackingInt = @intFromEnum(sparse_index);
-            if (index < self.sparse.len) {
+            if (index >= self.sparse.len) {
                 return null;
             } else {
                 return self.sparse[index];
@@ -209,5 +210,5 @@ test "stringify" {
     const parsed = try std.json.parseFromSlice(@TypeOf(set), a, string, .{});
     defer parsed.deinit();
 
-    std.debug.print("hi", .{});
+    //    std.debug.print("hi", .{});
 }

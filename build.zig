@@ -19,13 +19,13 @@ pub fn build(b: *std.Build) void {
     });
 
     //================ADD DVUI======================
-    const dvui = b.dependency("dvui", .{
-        .target = target,
-        .optimize = optimize,
-        .link_backend = true,
-    });
-    exe.root_module.addImport("dvui", dvui.module("dvui_raylib"));
-    exe_test.root_module.addImport("dvui", dvui.module("dvui_raylib"));
+    //const dvui = b.dependency("dvui", .{
+    //    .target = target,
+    //    .optimize = optimize,
+    //    .link_backend = true,
+    //});
+    //exe.root_module.addImport("dvui", dvui.module("dvui_raylib"));
+    //exe_test.root_module.addImport("dvui", dvui.module("dvui_raylib"));
 
     b.installArtifact(exe);
 
