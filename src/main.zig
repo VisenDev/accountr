@@ -17,6 +17,7 @@ pub fn main() !void {
     defer arena.deinit();
     const a = arena.allocator();
     _ = a; // autofix
+    //
 
     //ray.SetConfigFlags(ray.FLAG_WINDOW_RESIZABLE);
     //ray.SetConfigFlags(ray.FLAG_VSYNC_HINT); //disable this flag to test max fps

@@ -1,4 +1,5 @@
 .{
+    .minimum_zig_version = "0.13.0",
     .name = "accountr",
     .version = "0.0.0",
     .dependencies = .{
