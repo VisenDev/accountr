@@ -5,17 +5,21 @@ const Id = enum(usize) {
     _,
 };
 
+const Allocator = std.mem.Allocator;
+
 pub fn StructOfSparseSet(comptime T: type) type {
     if (@typeInfo(T) != .@"struct") @compileError("Invalid type");
     const info = @typeInfo(T).@"struct";
     var fields: [info.fields.len]std.builtin.Type.StructField = undefined;
     for (info.fields, 0..) |field, i| {
+        const SSet = SparseSet(field.type, usize);
+        const default: SSet = .{};
         fields[i] = .{
-            .type = SparseSet(field.type, usize),
+            .type = SSet,
             .name = field.name,
-            .default_value_ptr = null,
+            .default_value_ptr = &default,
             .is_comptime = false,
-            .alignment = @alignOf(SparseSet(field.type, usize)),
+            .alignment = @alignOf(SSet),
         };
     }
     return @Type(
@@ -32,21 +36,36 @@ pub fn StructOfSparseSet(comptime T: type) type {
 
 pub fn Ecs(comptime T: type) type {
     return struct {
-        id_cap: usize,
-        ids: std.ArrayListUnmanaged(Id) = .{},
+        const component_info = @typeInfo(StructOfSparseSet(T)).@"struct".fields;
+
+        max_id: usize,
+        ids: std.ArrayListUnmanaged(Id),
         components: StructOfSparseSet(T),
 
-        pub fn init(a: std.mem.Allocator) !@This() {
-            const id_cap = 128;
-            var ids: std.ArrayListUnmanaged(Id) = try .initCapacity(a, id_cap);
-            for (0..id_cap) |i| {
-                try ids.append(a, i);
-            }
-            return .{
-                .ids = ids,
-                .id_cap = id_cap,
+        pub fn init(a: Allocator) !@This() {
+            const initial_cap = 128;
+            _ = initial_cap; // autofix
+            var result: @This() = .{
+                .max_id = init,
+                .ids = try .init(a),
                 .components = .{},
             };
+            inline for (component_info) |field| {
+                @field(result.components, field.name) = .init();
+            }
+            return result;
+        }
+
+        pub fn deinit(self: *@This(), a: Allocator) void {
+            inline for (component_info) |field| {
+                @field(self.components, field.name).deinit(a);
+            }
+            self.ids.deinit();
+        }
+
+        pub fn newEntity(self: *@This(), a: Allocator) !Id {
+            _ = self;
+            _ = a;
         }
     };
 }
@@ -59,4 +78,7 @@ const TestType = struct {
 
 test "ecs" {
     _ = &Ecs(TestType).init(std.testing.allocator);
+    var e = try Ecs(TestType).init(std.testing.allocator);
+    _ = &e;
+    defer e.deinit(std.testing.allocator);
 }

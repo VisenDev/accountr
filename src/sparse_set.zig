@@ -21,7 +21,6 @@ pub fn ArrayIndex(comptime BackingInt: type) type {
 }
 
 pub fn SparseSet(comptime T: type, comptime BackingInt: type) type {
-    //
     return struct {
         pub const Index = ArrayIndex(BackingInt);
 
